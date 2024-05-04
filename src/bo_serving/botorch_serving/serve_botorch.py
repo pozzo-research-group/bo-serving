@@ -10,7 +10,7 @@ from flask_caching import Cache
 
 import uuid
 
-from ax_serving import ax_solver
+from bo_serving.botorch_serving import botorch_optimizer
  
 config = {
     "DEBUG":True,
@@ -31,10 +31,31 @@ def new_experiment():
     n_random_trials = data['n_random_trials']
     n_bo_trials = data['n_bo_trials']
 
+
+    try:
+        nu = data['nu']
+    except:
+        nu = 5/2
+
+    try:
+        bounds = data['bounds']
+    except KeyError:
+        bounds = [(0, 1.0)]*n_params
+
+    try:
+        batch_size = data['batch_size']
+    except:
+        batch_size = 1
+
+    try:
+        task = data['task']
+    except:
+        task = 'minimize'
+
     uniqueid = str(uuid.uuid4().int)
 
-    AxSolver = ax_solver.AxSolver(n_params, n_random_trials, n_bo_trials)
-    cache.set(uniqueid, AxSolver)
+    BoTorchSolver = botorch_optimizer.BoTorchOptimizer(bounds, n_params, batch_size, n_random_trials, n_bo_trials, task)
+    cache.set(uniqueid, BoTorchSolver)
 
     return jsonify({'uuid':uniqueid})
 
@@ -42,18 +63,19 @@ def new_experiment():
 def complete_trial():
     data = request.json
 
-    #TODO: Update API spec so mean, cov gets passed explicitly rather than as a tuple
 
     uniqueid = data['uuid']
     trial_index = int(data['trial_index'])
     metric = data['metric']
     mean = data['mean']
-    std = data['std']
+    #std = data['std']
+
+    #TODO: data cleaning on this
     
     print('trial_index: ', trial_index)
-    raw_data = {f'{metric}':(float(mean), float(std))}
+    #raw_data = {f'{metric}':(float(mean), float(std))}
 
-    print('raw update data: ', raw_data)
+    #print('raw update data: ', raw_data)
 
     # get our result values back to tuples 
     #for entry in rawdata:
@@ -61,9 +83,9 @@ def complete_trial():
     #    entry['results'] = cleaned_result
     #    cleaned_data.append(entry)
 
-    AxSolver = cache.get(uniqueid)
-    AxSolver.update(trial_index, raw_data)
-    cache.set(uniqueid, AxSolver)
+    BoTorchSolver = cache.get(uniqueid)
+    BoTorchSolver.update(trial_index, mean)
+    cache.set(uniqueid, BoTorchSolver)
     return('Updated experiment data')
 
 @app.route('/check_trials')
@@ -98,9 +120,9 @@ def get_next_trial():
     # since this is time intensive, should consider how to handle that
     # option 1: Spawn a background thread, user checks back later to get result 
 
-    AxSolver = cache.get(uniqueid)
-    parameterization, trial_index = AxSolver.ask()
-    cache.set(uniqueid, AxSolver)
+    BoSolver = cache.get(uniqueid)
+    parameterization, trial_index = BoSolver.get_next_trial()
+    cache.set(uniqueid, BoSolver)
 
     print('trial index when getting trial: ', trial_index)
 
