@@ -4,13 +4,14 @@ from ax.utils.notebook.plotting import init_notebook_plotting, render
 
 import numpy as np
 
-from flask import Flask, request
+from flask import Flask, request, Response
 from flask.json import jsonify
 from flask_caching import Cache
 
 import uuid
 
 from bo_serving.botorch_serving import botorch_optimizer
+import json
  
 config = {
     "DEBUG":True,
@@ -54,7 +55,7 @@ def new_experiment():
 
     uniqueid = str(uuid.uuid4().int)
 
-    BoTorchSolver = botorch_optimizer.BoTorchOptimizer(bounds, n_params, batch_size, n_random_trials, n_bo_trials, task)
+    BoTorchSolver = botorch_optimizer.BoTorchOptimizer(bounds, n_params, batch_size, n_random_trials, n_bo_trials, uniqueid, task)
     cache.set(uniqueid, BoTorchSolver)
 
     return jsonify({'uuid':uniqueid})
@@ -68,6 +69,11 @@ def complete_trial():
     trial_index = int(data['trial_index'])
     metric = data['metric']
     mean = data['mean']
+
+    try:
+        extra_data = data['extra_data']
+    except KeyError:
+        extra_data = None
     #std = data['std']
 
     #TODO: data cleaning on this
@@ -84,7 +90,7 @@ def complete_trial():
     #    cleaned_data.append(entry)
 
     BoTorchSolver = cache.get(uniqueid)
-    BoTorchSolver.update(trial_index, mean)
+    BoTorchSolver.update(trial_index, mean, extra_data = extra_data)
     cache.set(uniqueid, BoTorchSolver)
     return('Updated experiment data')
 
@@ -128,3 +134,22 @@ def get_next_trial():
 
     data = {'trial_index':trial_index, "parameterization":parameterization}
     return jsonify(data)
+
+
+@app.route('/observability_data', methods = ['POST'])
+def get_observability_data():
+    data = request.json
+    uniqueid = data['uuid']
+
+    #try:
+    with open(f'servedata_{uniqueid}.json', 'rt') as f:
+        servedata = json.load(f)
+
+        
+    return jsonify(servedata)
+    #except:
+
+     #   return Response(f"Error fetching data for experiment {uniqueid}", status = 500)
+
+
+

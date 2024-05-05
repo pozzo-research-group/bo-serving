@@ -17,6 +17,8 @@ from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP, FixedNoiseGP
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
+import json
+
 class ExperimentData():
     """"
     Fancy cache for experimental data 
@@ -28,10 +30,11 @@ class ExperimentData():
         self.n_dims_x = n_dims_x
         self.open_trials = {}
         self.n_complete_trials = 0
+        self.extra_data = {}
         
 
 
-    def complete_trial(self, trial_index, new_y_data):
+    def complete_trial(self, trial_index, new_y_data, extra_data = None):
         """
         Add results from a new trial 
 
@@ -67,10 +70,16 @@ class ExperimentData():
 
         self.x_data = x_data
         self.y_data = y_data
-        self.n_complete_trials += 1
 
-        print('X shape: ', self.x_data.shape)
-        print('Y shape: ', self.y_data.shape)
+
+        #print('got extra data: ', extra_data)
+        self.extra_data[trial_index] = extra_data
+        # close out trial bookkeeping
+        self.n_complete_trials += 1
+        del self.open_trials[trial_index]
+
+       # print('X shape: ', self.x_data.shape)
+        #print('Y shape: ', self.y_data.shape)
 
     def get_data(self):
         return self.x_data, self.y_data
@@ -92,7 +101,7 @@ class ExperimentData():
 
 
 class BoTorchOptimizer():
-    def __init__(self, bounds, n_dims_x, batch_size, n_random_trials, n_bo_trials, task = 'maximize', nu = 5/2):
+    def __init__(self, bounds, n_dims_x, batch_size, n_random_trials, n_bo_trials, uniqueid, task = 'maximize', nu = 5/2):
         self.model_name = "gp"
         self.model = None
         self.acq_func = None
@@ -107,6 +116,8 @@ class BoTorchOptimizer():
         self.n_random_trials = n_random_trials
         self.n_bo_trials = n_bo_trials
         self.ExperimentData = ExperimentData(n_dims_x = n_dims_x )
+        self.uniqueid = uniqueid
+
     @staticmethod
     def data_utils(data):
 
@@ -142,7 +153,7 @@ class BoTorchOptimizer():
 
         return parameterization, trial_index
     
-    def update(self, trial_index, raw_data):
+    def update(self, trial_index, raw_data, extra_data = None):
         """
         Externally callable function to update with new data
 
@@ -150,9 +161,11 @@ class BoTorchOptimizer():
         raw_data: int float or str
         """
 
-        self.ExperimentData.complete_trial(trial_index, raw_data)
+        self.ExperimentData.complete_trial(trial_index, raw_data, extra_data = extra_data)
 
         self.update_surrogate(*self.ExperimentData.get_data())
+
+        self.generate_observability_data()
 
 
     def update_surrogate(self, x_data, y_data):
@@ -219,3 +232,108 @@ class BoTorchOptimizer():
         self.model = gp_model
 
         return
+    
+    def new_model_for_observability(self):
+        """
+        This is a nasty hack to get around a pickling issue.
+
+        When I make predictions on x values for observability, something unpickleable gets attached to 
+        BoTorchOptimizer object, breaking caching. this handles model fitting here to avoid this. Downside is we fit 
+        model twice. Should figure out a real fix
+
+
+        """
+        xdata, ydata = self.ExperimentData.get_data()
+        ## Code from update_surrogate()
+        x_data = self.data_utils(xdata)
+
+        if self.task == 'maximize':
+            y_data = self.data_utils(ydata)
+            best= y_data.max()
+        elif self.task == 'minimize':
+            y_data = -1*self.data_utils(ydata)
+            best = y_data.min()
+        else:
+            raise ValueError(f'Task must be either maximize or minimize, not {self.task}')
+
+        normalized_x = normalize(x_data, self.tensor_bounds)
+
+
+        ## Code from initialize_model
+        kernel = MaternKernel(nu = self.nu)
+        gp_model = SingleTaskGP(self.data_utils(normalized_x), self.data_utils(y_data), outcome_transform=Standardize(m=1), covar_module=kernel).to(normalized_x)
+
+        mll = ExactMarginalLogLikelihood(gp_model.likelihood, gp_model)
+
+        fit_gpytorch_mll(mll)
+      
+        ## end initialize model code
+        posterior = gp_model.posterior(self.data_utils(normalized_x))
+        mean  = posterior.mean.detach().reshape(-1).tolist()
+        if self.task == 'minimize':
+            mean = [-1*val for val in mean]
+
+        del kernel
+        del gp_model
+        del mll
+        del posterior
+
+        return mean
+        
+    
+    def generate_observability_data(self):
+        """"
+        Generate a data file of observability metrics, for example for streamlit dashboard
+
+        Things that should go here:
+        - Most recent image
+        - All the colors that have been observed along with their loss scores
+        - Model predictions for all tested points
+
+        """
+
+        # get observed rgb for all trials
+        trials = list(self.ExperimentData.extra_data.keys())
+
+        try:
+            observed_rgb = [self.ExperimentData.extra_data[trial_ind]['observed_rgb'] for trial_ind in trials]
+        except KeyError:
+            observed_rgb = None
+
+
+
+        # get most recent image from extra_data
+        try:
+            image = self.ExperimentData.extra_data[max(trials)]['image']
+        except KeyError:
+            image = None
+
+        # get model predictions for parity plot
+
+        x_data = self.ExperimentData.x_data.detach().clone()
+        true_y = self.ExperimentData.y_data.detach().clone()
+        true_y = true_y.reshape(-1).tolist()
+
+        pred_y = self.new_model_for_observability()
+
+        
+
+        data = {}
+
+        data['observed_rgb'] = observed_rgb
+        data['model_prediction'] = {'y_true':true_y, 'y_pred':pred_y}
+        data['image'] = image
+
+        with open(f'servedata_{self.uniqueid}.json', 'wt') as f:
+            f.write(json.dumps(data))
+
+        #with open('mostrecentimage.jpg', 'wb') as f:
+        #    f.write(image)
+            
+        del self.model
+        del self.mll
+        del x_data
+        del true_y
+        del data
+
+        return 
