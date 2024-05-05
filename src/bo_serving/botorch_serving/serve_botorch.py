@@ -57,8 +57,15 @@ def new_experiment():
 
     BoTorchSolver = botorch_optimizer.BoTorchOptimizer(bounds, n_params, batch_size, n_random_trials, n_bo_trials, uniqueid, task)
     cache.set(uniqueid, BoTorchSolver)
+    cache.set('most_recent_experiment', uniqueid)
 
     return jsonify({'uuid':uniqueid})
+
+@app.route('/get_open_experiment', methods = ['GET'])
+def get_open_experiment():
+    unique_id = cache.get('most_recent_experiment')
+    cache.set('most_recent_experiment', unique_id)
+    return jsonify({'uuid':unique_id})
 
 @app.route('/complete_trial', methods = ['POST'])
 def complete_trial():
@@ -92,6 +99,7 @@ def complete_trial():
     BoTorchSolver = cache.get(uniqueid)
     BoTorchSolver.update(trial_index, mean, extra_data = extra_data)
     cache.set(uniqueid, BoTorchSolver)
+    cache.set('most_recent_experiment', uniqueid)
     return('Updated experiment data')
 
 @app.route('/check_trials')
@@ -145,7 +153,7 @@ def get_observability_data():
     with open(f'servedata_{uniqueid}.json', 'rt') as f:
         servedata = json.load(f)
 
-        
+
     return jsonify(servedata)
     #except:
 
