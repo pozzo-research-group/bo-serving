@@ -16,6 +16,7 @@ import json
 config = {
     "DEBUG":True,
     "CACHE_TYPE":"SimpleCache",
+    "CACHE_DEFAULT_TIMEOUT": 10000
 }
 
 app = Flask(__name__)
@@ -96,9 +97,11 @@ def complete_trial():
     #    entry['results'] = cleaned_result
     #    cleaned_data.append(entry)
 
+    print(f'updating BoSolver for experiment {uniqueid}')
     BoTorchSolver = cache.get(uniqueid)
     BoTorchSolver.update(trial_index, mean, extra_data = extra_data)
     cache.set(uniqueid, BoTorchSolver)
+    print(f'set cache for experiment {uniqueid}')
     cache.set('most_recent_experiment', uniqueid)
     return('Updated experiment data')
 
@@ -137,6 +140,7 @@ def get_next_trial():
     BoSolver = cache.get(uniqueid)
     parameterization, trial_index = BoSolver.get_next_trial()
     cache.set(uniqueid, BoSolver)
+    print(f'cached BoSolver for experiment UUID {uniqueid}')
 
     print('trial index when getting trial: ', trial_index)
 

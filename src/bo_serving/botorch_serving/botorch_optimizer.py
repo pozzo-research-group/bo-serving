@@ -132,6 +132,8 @@ class BoTorchOptimizer():
     def generate_random_parameterization(self):
         # Generate n_samples random color samples presented as proportions of stock colors volumes
         param_arr = np.random.dirichlet(np.ones(self.n_dims_x), 1)[0]
+        print('shuffled array')
+        np.random.shuffle(param_arr)
         return param_arr
         #return self.optimizer.ask()
     
@@ -165,7 +167,8 @@ class BoTorchOptimizer():
 
         self.update_surrogate(*self.ExperimentData.get_data())
 
-        self.generate_observability_data()
+        if extra_data is not None:
+            self.generate_observability_data()
 
 
     def update_surrogate(self, x_data, y_data):
@@ -308,6 +311,11 @@ class BoTorchOptimizer():
         except KeyError:
             image = None
 
+        
+        try:
+            color_swatch = self.ExperimentData.extra_data[max(trials)]['color_swatch']
+        except KeyError:
+            color_swatch = None
         # get model predictions for parity plot
 
         x_data = self.ExperimentData.x_data.detach().clone()
@@ -323,6 +331,7 @@ class BoTorchOptimizer():
         data['observed_rgb'] = observed_rgb
         data['model_prediction'] = {'y_true':true_y, 'y_pred':pred_y}
         data['image'] = image
+        data['color_swatch'] = color_swatch
 
         with open(f'servedata_{self.uniqueid}.json', 'wt') as f:
             f.write(json.dumps(data))
