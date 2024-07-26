@@ -4,7 +4,7 @@ import torch
 
 torch.set_default_dtype(torch.double)
 
-from botorch.acquisition.analytic import LogExpectedImprovement
+from botorch.acquisition.analytic import LogExpectedImprovement, UpperConfidenceBound
 from botorch.models.transforms.outcome import Standardize 
 from botorch.optim import optimize_acqf
 from botorch.utils.transforms import normalize, unnormalize
@@ -101,7 +101,7 @@ class ExperimentData():
 
 
 class BoTorchOptimizer():
-    def __init__(self, bounds, n_dims_x, batch_size, n_random_trials, n_bo_trials, uniqueid, task = 'maximize', nu = 5/2):
+    def __init__(self, bounds, n_dims_x, batch_size, n_random_trials, n_bo_trials, uniqueid, task = 'maximize', nu = 5/2, beta = 0.2):
         self.model_name = "gp"
         self.model = None
         self.acq_func = None
@@ -117,6 +117,7 @@ class BoTorchOptimizer():
         self.n_bo_trials = n_bo_trials
         self.ExperimentData = ExperimentData(n_dims_x = n_dims_x )
         self.uniqueid = uniqueid
+        self.beta = beta
 
     @staticmethod
     def data_utils(data):
@@ -187,7 +188,8 @@ class BoTorchOptimizer():
         normalized_x = normalize(x_data, self.tensor_bounds)
         self.initialize_model(normalized_x, y_data)
       
-        acquisition = LogExpectedImprovement(self.model, best_f = best)
+        #acquisition = LogExpectedImprovement(self.model, best_f = best)
+        acquisition = UpperConfidenceBound(self.model, beta = self.beta)
         self.acq_func = acquisition
         return 
     
