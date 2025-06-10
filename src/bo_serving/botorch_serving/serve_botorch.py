@@ -56,7 +56,7 @@ def new_experiment():
 
     uniqueid = str(uuid.uuid4().int)
 
-    BoTorchSolver = botorch_optimizer.BoTorchOptimizer(bounds, n_params, batch_size, n_random_trials, n_bo_trials, uniqueid, task)
+    BoTorchSolver = botorch_optimizer.BoTorchOptimizer(bounds, n_params, batch_size, n_random_trials, n_bo_trials, uniqueid, task, beta = 0.3)
     cache.set(uniqueid, BoTorchSolver)
     cache.set('most_recent_experiment', uniqueid)
 
